@@ -1124,6 +1124,15 @@ class EpochsManager(Singleton):
         self.__calculate_avail_seconds(node_last_epoch_hb_timestamps) / self.epoch_length, 4
       )
       
+      node_current_epoch_data = self.data[node_addr][EPCT.CURRENT_EPOCH]
+      node_current_epoch_id = node_current_epoch_data[EPCT.ID]
+      node_current_epoch_hb_timestamps = node_current_epoch_data[EPCT.HB_TIMESTAMPS]
+      node_current_epoch_hb_timestamps = sorted(list(node_current_epoch_hb_timestamps))
+      node_current_epoch_1st_hb = node_current_epoch_hb_timestamps[0] if len(node_current_epoch_hb_timestamps) > 0 else None
+      node_current_epoch_last_hb = node_current_epoch_hb_timestamps[-1] if len(node_current_epoch_hb_timestamps) > 0 else None
+      node_current_epoch_nr_hb = len(node_current_epoch_hb_timestamps)
+      
+      
       epochs_ids = sorted(list(dct_epochs.keys()))
       epochs = [dct_epochs[x] for x in epochs_ids]
       selection = epochs_ids[-NR_HIST:]
@@ -1156,6 +1165,13 @@ class EpochsManager(Singleton):
         'score' : score,
         'first_check' : first_seen,
         'last_check' : last_seen,
+        
+        'current_epoch' : {
+          'nr_hb' : node_current_epoch_nr_hb,
+          '1st_hb' : str(node_current_epoch_1st_hb),
+          'last_hb' : str(node_current_epoch_last_hb),
+        },
+        
         'recent_history' : {
           'last_10_ep' : str_last_epochs,
           'certainty' : str_certainty,
