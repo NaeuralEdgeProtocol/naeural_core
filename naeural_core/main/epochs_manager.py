@@ -1098,7 +1098,7 @@ class EpochsManager(Singleton):
   # TODO: maybe replace this with `get_epoch_of_licensing` after implementing
   def get_node_first_epoch(self, node_addr):
     """
-    Returns the first epoch the node was alive.
+    Returns the first epoch the node was seen as alive by the current oracle.
 
     Parameters
     ----------

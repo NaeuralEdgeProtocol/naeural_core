@@ -16,6 +16,7 @@ import base64
 import yaml
 import zlib
 import hashlib
+import select
 
 from subprocess import Popen
 
@@ -169,12 +170,14 @@ class LogReader():
   def _run(self):
     try:
       while not self.done:
-        text = self.buff_reader.read(self.buf_reader_size)
-        if text is not None:
-          if len(text) > 0:
+        ready, _, _ = select.select([self.buff_reader], [], [], 0.1)  # Wait up to 0.1s
+        if ready:
+          text = self.buff_reader.read(self.buf_reader_size)
+          if text:  # Check if any data is read
             self.on_text(text)
-        else:
-          break
+          else:
+            break
+        # endif any data ready
     except ct.ForceStopException:
       self.owner.P("Log reader forced to stop.")
     except Exception as exc:
@@ -197,8 +200,11 @@ class LogReader():
     if self.done:
       return
     self.done = True
+    self.owner.P("Stopping log reader thread...")
     self.buff_reader.close()
+    self.owner.P("Log reader thread should be stopped.")
     if not self.exited:
+      self.owner.P("Waiting for log reader thread to stop...")
       self.owner.sleep(0.2)
     # end if
 
@@ -209,7 +215,9 @@ class LogReader():
       self.owner.P("Log reader stopped forcefully.")
     # end if
 
+    self.owner.P("Joining log reader thread...")
     self.thread.join(timeout=0.1)
+    self.owner.P("Log reader thread joined.")
 
     if self.thread.is_alive():
       self.owner.P("Log reader thread is still alive.", color='r')

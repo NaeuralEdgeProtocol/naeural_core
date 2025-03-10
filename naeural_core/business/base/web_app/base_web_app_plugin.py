@@ -2,7 +2,6 @@ import os
 import shutil
 import subprocess
 import tempfile
-import asyncio
 import psutil
 
 from jinja2 import Environment, FileSystemLoader
@@ -270,6 +269,36 @@ class BaseWebAppPlugin(_NgrokMixinPlugin, BasePluginExecutor):
 
     return process_finished, failed
 
+  def kill_process_and_children(self, proc: subprocess.Popen, timeout=3):
+    try:
+      parent = psutil.Process(proc.pid)
+    except psutil.NoSuchProcess:
+      return
+
+    # Get child processes (recursive=True → grandchildren, etc.)
+    children = parent.children(recursive=True)
+
+    # Send SIGKILL to children first
+    for child in children:
+      try:
+        child.kill()
+      except psutil.NoSuchProcess:
+        pass
+
+    # Kill the parent
+    try:
+      parent.kill()
+    except psutil.NoSuchProcess:
+      pass
+
+    # Wait for them to terminate
+    gone, alive = psutil.wait_procs([parent, *children], timeout=timeout)
+    if alive:
+      # Some processes are still alive
+      for p in alive:
+        p.terminate()  # or p.kill() again
+    return
+
   def __maybe_kill_process(self, process, key, max_tries=5):
     if process is None:
       return
@@ -279,11 +308,13 @@ class BaseWebAppPlugin(_NgrokMixinPlugin, BasePluginExecutor):
       tries += 1
       try:
         self.P(f"Forcefully killing process {key}(try {tries}/{max_tries})")
-        process.kill()
-        success, failed = self.__wait_for_command(
-          process=process,
-          timeout=3,
-        )
+        self.kill_process_and_children(process, timeout=3)
+        # Check if it's done
+        if process.poll() is not None:
+          self.P(f"Process {key} is fully terminated.")
+          success = True
+        else:
+          self.P(f"Process {key} still alive. Retrying.")
         self.__maybe_print_key_logs(key)
         if success:
           self.P(f"Killed process {key} from {tries} tries.")
@@ -351,12 +382,19 @@ class BaseWebAppPlugin(_NgrokMixinPlugin, BasePluginExecutor):
     return logs, err_logs
 
   def __maybe_read_and_stop_key_log_readers(self, key):
+    if self.cfg_debug_web_app:
+      self.P(f"Reading and stopping log readers for key {key}...")
+    # endif debug web app
     logs_reader = self.dct_logs_reader.get(key)
     if logs_reader is not None:
+      if self.cfg_debug_web_app:
+        self.P(f"Stopping log reader for key {key}...")
       logs_reader.stop()
 
     err_logs_reader = self.dct_err_logs_reader.get(key)
     if err_logs_reader is not None:
+      if self.cfg_debug_web_app:
+        self.P(f"Stopping error log reader for key {key}...")
       err_logs_reader.stop()
 
     self.__maybe_print_key_logs(key)
@@ -366,7 +404,9 @@ class BaseWebAppPlugin(_NgrokMixinPlugin, BasePluginExecutor):
     return
 
   def __maybe_read_and_stop_all_log_readers(self):
+    self.P("Reading and stopping all log readers...")
     log_keys = set(list(self.dct_logs_reader.keys()) + list(self.dct_err_logs_reader.keys()))
+    self.P(f"Log keys: {log_keys}")
     for key in log_keys:
       self.__maybe_read_and_stop_key_log_readers(key)
     return
@@ -803,12 +843,7 @@ class BaseWebAppPlugin(_NgrokMixinPlugin, BasePluginExecutor):
   def on_close(self):
     # This method is called by super(BaseWebAppPlugin, self)._on_close()
     super(BaseWebAppPlugin, self).on_close()
-    if self.ngrok_listener is not None:
-      self.P(f"Closing Ngrok listener...")
-      # we do not need a new event loop as this is direcly handled by the
-      # asyncio.run() method
-      asyncio.run(self.maybe_stop_ngrok())
-    # endif ngrok listener opened
+    self.maybe_stop_ngrok()
     return
 
   def _on_command(self, data, delta_logs=None, full_logs=None, start=None, reload=None, **kwargs):

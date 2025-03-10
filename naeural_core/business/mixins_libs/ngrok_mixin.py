@@ -1,4 +1,6 @@
+import threading
 import ngrok
+import asyncio
 __VER__ = '0.0.0.0'
 
 
@@ -86,18 +88,24 @@ class _NgrokMixinPlugin(object):
       self.report_missing_authtoken()
     tunnel_kwargs['authtoken'] = ng_token
     return tunnel_kwargs, valid
-  
-  
-  async def maybe_stop_ngrok(self):
+
+
+  async def __maybe_async_stop_ngrok(self):
     try:
-      if self.ngrok_started and self.ngrok_listener is not None:
-        self.P(f"Ngrok stopping...")
-        self.ngrok_listener.close()
-        self.ngrok_started = False
-        self.P(f"Ngrok stopped.")
-      # endif ngrok started
+      self.P(f"Ngrok stopping...")
+      self.ngrok_listener.close()
+      self.ngrok_started = False
+      self.P(f"Ngrok stopped.")
     except Exception as exc:
       self.P(f"Error stopping ngrok: {exc}", color='r')
+    return
+
+  
+  def maybe_stop_ngrok(self):
+    if self.ngrok_started and self.ngrok_listener is not None:
+      self.P(f"Closing Ngrok listener...")
+
+      threading.Thread(target=lambda: asyncio.run(self.__maybe_async_stop_ngrok()), daemon=True).start()
     return
 
 
